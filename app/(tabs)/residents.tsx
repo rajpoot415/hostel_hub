@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,98 +6,160 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Search, Plus, User } from 'lucide-react-native';
+import { Search, Plus } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { logError } from '@/lib/utils';
+import type { ResidentQueryResult } from '@/lib/types';
 
-const mockResidents = [
-  {
-    id: 1,
-    name: 'Rahul Sharma',
-    room: '101',
-    status: 'Rent Due',
-    statusColor: '#dc2626',
-  },
-  {
-    id: 2,
-    name: 'Priya Patel',
-    room: '203',
-    status: 'Active',
-    statusColor: '#16a34a',
-  },
-  {
-    id: 3,
-    name: 'Amit Kumar',
-    room: '305',
-    status: 'Rent Due',
-    statusColor: '#dc2626',
-  },
-  {
-    id: 4,
-    name: 'Sneha Reddy',
-    room: '102',
-    status: 'Active',
-    statusColor: '#16a34a',
-  },
-  {
-    id: 5,
-    name: 'Vijay Singh',
-    room: '204',
-    status: 'Rent Due',
-    statusColor: '#dc2626',
-  },
-  {
-    id: 6,
-    name: 'Anjali Verma',
-    room: '401',
-    status: 'New',
-    statusColor: '#2563eb',
-  },
-  {
-    id: 7,
-    name: 'Karan Mehta',
-    room: '302',
-    status: 'New',
-    statusColor: '#2563eb',
-  },
-  {
-    id: 8,
-    name: 'Riya Joshi',
-    room: '205',
-    status: 'Active',
-    statusColor: '#16a34a',
-  },
-  {
-    id: 9,
-    name: 'Suresh Gupta',
-    room: '403',
-    status: 'Active',
-    statusColor: '#16a34a',
-  },
-  {
-    id: 10,
-    name: 'Pooja Desai',
-    room: '301',
-    status: 'Rent Due',
-    statusColor: '#dc2626',
-  },
-];
+interface Resident {
+  id: string;
+  name: string;
+  room: string;
+  status: 'Active' | 'Rent Due' | 'New';
+  statusColor: string;
+  hasRentDue: boolean;
+  admissionDate: string;
+}
 
 export default function ResidentsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [residents, setResidents] = useState<Resident[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
 
   const filters = ['All', 'Rent Due', 'New'];
 
-  const filteredResidents = mockResidents.filter((resident) => {
-    const matchesSearch =
-      resident.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      resident.room.includes(searchQuery);
-    const matchesFilter =
-      activeFilter === 'All' || resident.status === activeFilter;
-    return matchesSearch && matchesFilter;
-  });
+  const fetchResidents = async () => {
+    if (!user) return;
+
+    try {
+      // Fetch all active residents with their rooms
+      const { data: residentsData, error: residentsError } = await supabase
+        .from('residents')
+        .select(`
+          id,
+          name,
+          admission_date,
+          room_id,
+          rooms (
+            room_number
+          )
+        `)
+        .eq('hostel_id', user.id)
+        .eq('status', 'active')
+        .order('name', { ascending: true });
+
+      if (residentsError) throw residentsError;
+
+      // Fetch rent status for each resident
+      // RLS will automatically filter to only show rents for residents in this hostel
+      const { data: rentsData, error: rentsError } = await supabase
+        .from('rents')
+        .select('resident_id, status')
+        .in('status', ['due', 'partial']);
+
+      if (rentsError) throw rentsError;
+
+      // Create a map of residents with rent due
+      const rentDueMap = new Set(
+        (rentsData || []).map((rent) => rent.resident_id)
+      );
+
+      // Calculate date 30 days ago for "New" filter
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Transform residents data
+      const transformedResidents: Resident[] = (residentsData || []).map(
+        (resident: ResidentQueryResult) => {
+          const hasRentDue = rentDueMap.has(resident.id);
+          const admissionDate = new Date(resident.admission_date);
+          const isNew = admissionDate >= thirtyDaysAgo;
+
+          let status: 'Active' | 'Rent Due' | 'New' = 'Active';
+          let statusColor = '#16a34a';
+
+          if (hasRentDue) {
+            status = 'Rent Due';
+            statusColor = '#dc2626';
+          } else if (isNew) {
+            status = 'New';
+            statusColor = '#2563eb';
+          }
+
+          return {
+            id: resident.id,
+            name: resident.name,
+            room: resident.rooms?.room_number || 'N/A',
+            status,
+            statusColor,
+            hasRentDue,
+            admissionDate: resident.admission_date,
+          };
+        }
+      );
+
+      setResidents(transformedResidents);
+    } catch (error) {
+      logError('Residents.fetchResidents', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchResidents();
+  }, [user]);
+
+  const filteredResidents = useMemo(() => {
+    let filtered = residents;
+
+    // Apply filter
+    if (activeFilter === 'Rent Due') {
+      filtered = filtered.filter((r) => r.hasRentDue);
+    } else if (activeFilter === 'New') {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      filtered = filtered.filter((r) => {
+        const admissionDate = new Date(r.admissionDate);
+        return admissionDate >= thirtyDaysAgo;
+      });
+    }
+
+    // Apply search
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(
+        (resident) =>
+          resident.name.toLowerCase().includes(query) ||
+          resident.room.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [residents, activeFilter, searchQuery]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchResidents();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -109,6 +171,7 @@ export default function ResidentsScreen() {
             placeholder="Search by name or room..."
             value={searchQuery}
             onChangeText={setSearchQuery}
+            autoCapitalize="none"
           />
         </View>
       </View>
@@ -133,32 +196,53 @@ export default function ResidentsScreen() {
         ))}
       </View>
 
-      <ScrollView style={styles.listContainer}>
-        {filteredResidents.map((resident) => (
-          <TouchableOpacity
-            key={resident.id}
-            style={styles.residentCard}
-            onPress={() => router.push(`/resident/${resident.id}`)}>
-            <View style={styles.residentLeft}>
-              <View style={styles.avatar}>
-                <User size={24} color="#fff" />
+      <ScrollView
+        style={styles.listContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
+        {filteredResidents.length > 0 ? (
+          filteredResidents.map((resident) => (
+            <TouchableOpacity
+              key={resident.id}
+              style={styles.residentCard}
+              onPress={() => router.push(`/resident/${resident.id}`)}>
+              <View style={styles.residentLeft}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {resident.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={styles.residentName}>{resident.name}</Text>
+                  <Text style={styles.roomText}>Room {resident.room}</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.residentName}>{resident.name}</Text>
-                <Text style={styles.roomText}>Room {resident.room}</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: `${resident.statusColor}15` },
+                ]}>
+                <Text
+                  style={[styles.statusText, { color: resident.statusColor }]}>
+                  {resident.status}
+                </Text>
               </View>
-            </View>
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: `${resident.statusColor}15` },
-              ]}>
-              <Text style={[styles.statusText, { color: resident.statusColor }]}>
-                {resident.status}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>
+              {searchQuery.trim()
+                ? 'No residents found matching your search'
+                : activeFilter === 'Rent Due'
+                  ? 'No residents with rent due'
+                  : activeFilter === 'New'
+                    ? 'No new residents in the last 30 days'
+                    : 'No residents found'}
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       <TouchableOpacity
@@ -286,5 +370,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  emptyState: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
   },
 });

@@ -5,18 +5,83 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Building2 } from 'lucide-react-native';
+import { Building2, AlertCircle } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { logError } from '@/lib/utils';
 
 export default function LoginScreen() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const router = useRouter();
+  const { signIn, resetPassword } = useAuth();
 
-  const handleLogin = () => {
-    router.replace('/(tabs)');
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter both email and password');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    try {
+      const { error } = await signIn(email.trim(), password);
+      
+      if (error) {
+        setError(error.message || 'Invalid email or password');
+      } else {
+        router.replace('/(tabs)');
+      }
+    } catch (err: unknown) {
+      logError('Login', err);
+      setError(err instanceof Error ? err.message : 'An error occurred during login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!forgotPasswordEmail.trim()) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    setForgotPasswordLoading(true);
+    try {
+      const { error } = await resetPassword(forgotPasswordEmail.trim());
+      
+      if (error) {
+        Alert.alert('Error', error.message || 'Failed to send reset email');
+      } else {
+        Alert.alert(
+          'Success',
+          'Password reset email sent! Please check your inbox.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setShowForgotPassword(false);
+                setForgotPasswordEmail('');
+              },
+            },
+          ]
+        );
+      }
+    } catch (err: unknown) {
+      logError('ForgotPassword', err);
+      Alert.alert('Error', err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setForgotPasswordLoading(false);
+    }
   };
 
   return (
@@ -30,35 +95,99 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.formContainer}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Username</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your username"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-          />
-        </View>
+        {showForgotPassword ? (
+          <>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                value={forgotPasswordEmail}
+                onChangeText={setForgotPasswordEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+              />
+            </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleForgotPassword}
+              disabled={forgotPasswordLoading}>
+              {forgotPasswordLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Send Reset Email</Text>
+              )}
+            </TouchableOpacity>
 
-        <TouchableOpacity>
-          <Text style={styles.forgotPassword}>Forgot Password?</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setShowForgotPassword(false);
+                setForgotPasswordEmail('');
+              }}>
+              <Text style={styles.forgotPassword}>Back to Login</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                style={[styles.input, error && styles.inputError]}
+                placeholder="Enter your email"
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  setError('');
+                }}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                editable={!loading}
+              />
+            </View>
 
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>Login</Text>
-        </TouchableOpacity>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <TextInput
+                style={[styles.input, error && styles.inputError]}
+                placeholder="Enter your password"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setError('');
+                }}
+                secureTextEntry
+                autoComplete="password"
+                editable={!loading}
+                onSubmitEditing={handleLogin}
+              />
+            </View>
+
+            {error ? (
+              <View style={styles.errorContainer}>
+                <AlertCircle size={16} color="#dc2626" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity onPress={() => setShowForgotPassword(true)}>
+              <Text style={styles.forgotPassword}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Login</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <Text style={styles.footer}>Version 1.0.0</Text>
@@ -138,5 +267,25 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 12,
     marginTop: 32,
+  },
+  inputError: {
+    borderColor: '#dc2626',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fee2e2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 14,
+    flex: 1,
+  },
+  loginButtonDisabled: {
+    opacity: 0.6,
   },
 });

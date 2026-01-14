@@ -1,28 +1,27 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { DoorOpen, Users } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { logError } from '@/lib/utils';
 
-const mockRooms = [
-  { id: 1, number: '101', capacity: 4, occupied: 4, floor: 1 },
-  { id: 2, number: '102', capacity: 4, occupied: 3, floor: 1 },
-  { id: 3, number: '103', capacity: 2, occupied: 0, floor: 1 },
-  { id: 4, number: '104', capacity: 4, occupied: 4, floor: 1 },
-  { id: 5, number: '201', capacity: 4, occupied: 2, floor: 2 },
-  { id: 6, number: '202', capacity: 2, occupied: 2, floor: 2 },
-  { id: 7, number: '203', capacity: 4, occupied: 3, floor: 2 },
-  { id: 8, number: '204', capacity: 4, occupied: 4, floor: 2 },
-  { id: 9, number: '205', capacity: 2, occupied: 1, floor: 2 },
-  { id: 10, number: '301', capacity: 4, occupied: 4, floor: 3 },
-  { id: 11, number: '302', capacity: 4, occupied: 3, floor: 3 },
-  { id: 12, number: '303', capacity: 2, occupied: 0, floor: 3 },
-  { id: 13, number: '304', capacity: 4, occupied: 4, floor: 3 },
-  { id: 14, number: '305', capacity: 4, occupied: 4, floor: 3 },
-  { id: 15, number: '401', capacity: 4, occupied: 1, floor: 4 },
-  { id: 16, number: '402', capacity: 2, occupied: 2, floor: 4 },
-  { id: 17, number: '403', capacity: 4, occupied: 4, floor: 4 },
-  { id: 18, number: '404', capacity: 4, occupied: 2, floor: 4 },
-];
+interface Room {
+  id: string;
+  room_number: string;
+  capacity: number;
+  occupied_seats: number;
+  floor: number;
+  vacant: number;
+}
 
-const groupByFloor = (rooms: typeof mockRooms) => {
+const groupByFloor = (rooms: Room[]) => {
   return rooms.reduce(
     (acc, room) => {
       if (!acc[room.floor]) {
@@ -31,41 +30,104 @@ const groupByFloor = (rooms: typeof mockRooms) => {
       acc[room.floor].push(room);
       return acc;
     },
-    {} as Record<number, typeof mockRooms>
+    {} as Record<number, Room[]>
   );
 };
 
+const getFloorFromRoomNumber = (roomNumber: string): number => {
+  // Extract first digit(s) from room number (e.g., "101" -> 1, "201" -> 2)
+  const match = roomNumber.match(/^(\d+)/);
+  if (match) {
+    const firstDigit = parseInt(match[1][0]);
+    return firstDigit;
+  }
+  return 0;
+};
+
 export default function RoomsScreen() {
-  const roomsByFloor = groupByFloor(mockRooms);
-  const totalRooms = mockRooms.length;
-  const totalCapacity = mockRooms.reduce((sum, room) => sum + room.capacity, 0);
-  const totalOccupied = mockRooms.reduce(
-    (sum, room) => sum + room.occupied,
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const { user } = useAuth();
+
+  const fetchRooms = async () => {
+    if (!user) return;
+
+    try {
+      const { data: roomsData, error } = await supabase
+        .from('rooms')
+        .select('id, room_number, capacity, occupied_seats')
+        .eq('hostel_id', user.id)
+        .order('room_number', { ascending: true });
+
+      if (error) throw error;
+
+      const roomsWithFloor: Room[] = (roomsData || []).map((room) => ({
+        id: room.id,
+        room_number: room.room_number,
+        capacity: room.capacity,
+        occupied_seats: room.occupied_seats,
+        floor: getFloorFromRoomNumber(room.room_number),
+        vacant: room.capacity - room.occupied_seats,
+      }));
+
+      setRooms(roomsWithFloor);
+    } catch (error) {
+      logError('Rooms.fetchRooms', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRooms();
+  }, [user]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchRooms();
+  };
+
+  const roomsByFloor = groupByFloor(rooms);
+  const totalRooms = rooms.length;
+  const totalCapacity = rooms.reduce((sum, room) => sum + room.capacity, 0);
+  const totalOccupied = rooms.reduce(
+    (sum, room) => sum + room.occupied_seats,
     0
   );
   const totalVacant = totalCapacity - totalOccupied;
 
   const getCardStyle = (occupied: number, capacity: number) => {
-    const percentage = (occupied / capacity) * 100;
-    if (percentage === 100) {
+    const vacant = capacity - occupied;
+    // Green: has vacant seats
+    if (vacant > 0) {
       return {
-        backgroundColor: '#fee2e2',
-        borderColor: '#dc2626',
-      };
-    } else if (percentage > 0) {
-      return {
-        backgroundColor: '#fef3c7',
-        borderColor: '#ca8a04',
+        backgroundColor: '#dcfce7',
+        borderColor: '#16a34a',
       };
     }
+    // Red: full (no vacant seats)
     return {
-      backgroundColor: '#dcfce7',
-      borderColor: '#16a34a',
+      backgroundColor: '#fee2e2',
+      borderColor: '#dc2626',
     };
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }>
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <View style={[styles.iconCircle, { backgroundColor: '#dbeafe' }]}>
@@ -100,50 +162,57 @@ export default function RoomsScreen() {
           <Text style={styles.legendText}>Vacant</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#ca8a04' }]} />
-          <Text style={styles.legendText}>Partial</Text>
-        </View>
-        <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: '#dc2626' }]} />
           <Text style={styles.legendText}>Full</Text>
         </View>
       </View>
 
-      {Object.entries(roomsByFloor)
-        .sort(([a], [b]) => Number(a) - Number(b))
-        .map(([floor, rooms]) => (
-          <View key={floor} style={styles.floorSection}>
-            <Text style={styles.floorTitle}>Floor {floor}</Text>
-            <View style={styles.roomGrid}>
-              {rooms.map((room) => {
-                const vacant = room.capacity - room.occupied;
-                const cardStyle = getCardStyle(room.occupied, room.capacity);
-                return (
-                  <View
-                    key={room.id}
-                    style={[
-                      styles.roomCard,
-                      {
-                        backgroundColor: cardStyle.backgroundColor,
-                        borderColor: cardStyle.borderColor,
-                      },
-                    ]}>
-                    <View style={styles.roomHeader}>
-                      <DoorOpen size={20} color={cardStyle.borderColor} />
-                      <Text style={styles.roomNumber}>{room.number}</Text>
+      {Object.keys(roomsByFloor).length > 0 ? (
+        Object.entries(roomsByFloor)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([floor, floorRooms]) => (
+            <View key={floor} style={styles.floorSection}>
+              <Text style={styles.floorTitle}>Floor {floor}</Text>
+              <View style={styles.roomGrid}>
+                {floorRooms.map((room) => {
+                  const vacant = room.vacant;
+                  const cardStyle = getCardStyle(
+                    room.occupied_seats,
+                    room.capacity
+                  );
+                  return (
+                    <View
+                      key={room.id}
+                      style={[
+                        styles.roomCard,
+                        {
+                          backgroundColor: cardStyle.backgroundColor,
+                          borderColor: cardStyle.borderColor,
+                        },
+                      ]}>
+                      <View style={styles.roomHeader}>
+                        <DoorOpen size={20} color={cardStyle.borderColor} />
+                        <Text style={styles.roomNumber}>
+                          {room.room_number}
+                        </Text>
+                      </View>
+                      <Text style={styles.capacityText}>
+                        {room.occupied_seats}/{room.capacity}
+                      </Text>
+                      <Text style={styles.capacityLabel}>
+                        {vacant} seat{vacant !== 1 ? 's' : ''} vacant
+                      </Text>
                     </View>
-                    <Text style={styles.capacityText}>
-                      {room.occupied}/{room.capacity}
-                    </Text>
-                    <Text style={styles.capacityLabel}>
-                      {vacant} seat{vacant !== 1 ? 's' : ''} vacant
-                    </Text>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+      ) : (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateText}>No rooms found</Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -252,6 +321,20 @@ const styles = StyleSheet.create({
   },
   capacityLabel: {
     fontSize: 12,
+    color: '#64748b',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  emptyState: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
     color: '#64748b',
   },
 });
