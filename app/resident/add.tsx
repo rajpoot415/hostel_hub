@@ -8,8 +8,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import { ArrowLeft, Upload, X, Check } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -23,6 +29,8 @@ interface Room {
   capacity: number;
   occupied_seats: number;
   vacant: number;
+  floor: number;
+  branch: string | null;
 }
 
 interface DocumentFile {
@@ -47,6 +55,8 @@ export default function AddResidentScreen() {
 
   const [showRoomPicker, setShowRoomPicker] = useState(false);
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
+  const [filteredRooms, setFilteredRooms] = useState<Room[]>([]);
+  const [selectedFloor, setSelectedFloor] = useState<string>('All');
   const [loading, setLoading] = useState(false);
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [photo, setPhoto] = useState<DocumentFile | null>(null);
@@ -58,12 +68,22 @@ export default function AddResidentScreen() {
     idProof: null,
   });
 
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
 
   useEffect(() => {
     fetchAvailableRooms();
   }, [user]);
+
+  useEffect(() => {
+    if (selectedFloor === 'All') {
+      setFilteredRooms(availableRooms);
+    } else {
+      setFilteredRooms(
+        availableRooms.filter((room) => room.floor === Number(selectedFloor))
+      );
+    }
+  }, [selectedFloor, availableRooms]);
 
   const fetchAvailableRooms = async () => {
     if (!user) return;
@@ -71,20 +91,33 @@ export default function AddResidentScreen() {
     try {
       const { data: rooms, error } = await supabase
         .from('rooms')
-        .select('id, room_number, capacity, occupied_seats')
+        .select('id, room_number, capacity, occupied_seats, floor, branch')
         .eq('hostel_id', user.id)
+        .order('floor', { ascending: true })
+        .order('branch', { ascending: true, nullsFirst: false })
         .order('room_number', { ascending: true });
 
       if (error) throw error;
+
+      const getFloorFromRoomNumber = (roomNumber: string): number => {
+        const match = roomNumber.match(/^(\d+)/);
+        if (match) {
+          const firstDigit = parseInt(match[1][0]);
+          return firstDigit;
+        }
+        return 0;
+      };
 
       const roomsWithVacancy = (rooms || [])
         .map((room) => ({
           ...room,
           vacant: room.capacity - room.occupied_seats,
+          floor: room.floor || getFloorFromRoomNumber(room.room_number),
         }))
         .filter((room) => room.vacant > 0);
 
       setAvailableRooms(roomsWithVacancy);
+      setFilteredRooms(roomsWithVacancy);
     } catch (error) {
       logError('AddResident.fetchAvailableRooms', error);
       Alert.alert('Error', 'Failed to load available rooms');
@@ -326,7 +359,7 @@ export default function AddResidentScreen() {
       Alert.alert('Success', 'Resident added successfully!', [
         {
           text: 'OK',
-          onPress: () => router.back(),
+          onPress: () => navigation.goBack(),
         },
       ]);
     } catch (error: unknown) {
@@ -341,21 +374,15 @@ export default function AddResidentScreen() {
   };
 
   return (
-    <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTitle: 'Add New Resident',
-          headerStyle: { backgroundColor: '#2563eb' },
-          headerTintColor: '#fff',
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()}>
-              <ArrowLeft size={24} color="#fff" />
-            </TouchableOpacity>
-          ),
-        }}
-      />
-      <ScrollView style={styles.container}>
+    <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Personal Details</Text>
 
@@ -469,30 +496,112 @@ export default function AddResidentScreen() {
                       !formData.roomId && styles.pickerPlaceholder,
                     ]}>
                     {formData.roomId
-                      ? availableRooms.find((r) => r.id === formData.roomId)
-                          ? `Room ${availableRooms.find((r) => r.id === formData.roomId)?.room_number} (${availableRooms.find((r) => r.id === formData.roomId)?.vacant} seat${availableRooms.find((r) => r.id === formData.roomId)?.vacant !== 1 ? 's' : ''} vacant)`
-                          : 'Choose available room'
+                      ? (() => {
+                          const selected = availableRooms.find((r) => r.id === formData.roomId);
+                          if (selected) {
+                            const branchText = selected.branch ? `${selected.branch} - ` : '';
+                            return `${branchText}Floor ${selected.floor} - Room ${selected.room_number} (Capacity: ${selected.capacity}, Vacant: ${selected.vacant})`;
+                          }
+                          return 'Choose available room';
+                        })()
                       : 'Choose available room'}
                   </Text>
                 </TouchableOpacity>
 
                 {showRoomPicker && (
                   <View style={styles.pickerOptions}>
-                    {availableRooms.length > 0 ? (
-                      availableRooms.map((room) => (
-                        <TouchableOpacity
-                          key={room.id}
-                          style={styles.pickerOption}
-                          onPress={() => {
-                            setFormData({ ...formData, roomId: room.id });
-                            setShowRoomPicker(false);
-                          }}>
-                          <Text style={styles.pickerOptionText}>
-                            Room {room.room_number} ({room.vacant} seat
-                            {room.vacant !== 1 ? 's' : ''} vacant)
-                          </Text>
-                        </TouchableOpacity>
-                      ))
+                    {availableRooms.length > 0 && (
+                      <View style={styles.floorFilter}>
+                        <Text style={styles.filterLabel}>Filter by Floor:</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <TouchableOpacity
+                            style={[
+                              styles.floorButton,
+                              selectedFloor === 'All' && styles.floorButtonActive,
+                            ]}
+                            onPress={() => setSelectedFloor('All')}>
+                            <Text
+                              style={[
+                                styles.floorButtonText,
+                                selectedFloor === 'All' && styles.floorButtonTextActive,
+                              ]}>
+                              All
+                            </Text>
+                          </TouchableOpacity>
+                          {Array.from(
+                            new Set(availableRooms.map((r) => r.floor))
+                          )
+                            .sort()
+                            .map((floor) => (
+                              <TouchableOpacity
+                                key={floor}
+                                style={[
+                                  styles.floorButton,
+                                  selectedFloor === floor.toString() &&
+                                    styles.floorButtonActive,
+                                ]}
+                                onPress={() => setSelectedFloor(floor.toString())}>
+                                <Text
+                                  style={[
+                                    styles.floorButtonText,
+                                    selectedFloor === floor.toString() &&
+                                      styles.floorButtonTextActive,
+                                  ]}>
+                                  Floor {floor}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                    {filteredRooms.length > 0 ? (
+                      <ScrollView
+                        style={styles.roomList}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={true}>
+                        {filteredRooms.map((room) => (
+                          <TouchableOpacity
+                            key={room.id}
+                            style={styles.pickerOption}
+                            onPress={() => {
+                              setFormData({ ...formData, roomId: room.id });
+                              setShowRoomPicker(false);
+                            }}>
+                            <View style={styles.roomOptionContent}>
+                              <View style={styles.roomOptionHeader}>
+                                <Text style={styles.roomOptionNumber}>
+                                  Room {room.room_number}
+                                </Text>
+                                <View style={styles.roomOptionBadges}>
+                                  {room.branch && (
+                                    <Text style={styles.roomOptionBranch}>
+                                      {room.branch}
+                                    </Text>
+                                  )}
+                                  <Text style={styles.roomOptionFloor}>
+                                    Floor {room.floor}
+                                  </Text>
+                                </View>
+                              </View>
+                              <View style={styles.roomOptionDetails}>
+                                <Text style={styles.roomOptionDetail}>
+                                  Capacity: {room.capacity}
+                                </Text>
+                                <Text style={styles.roomOptionDetail}>
+                                  Occupied: {room.occupied_seats}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.roomOptionDetail,
+                                    styles.roomOptionVacant,
+                                  ]}>
+                                  Vacant: {room.vacant}
+                                </Text>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     ) : (
                       <View style={styles.pickerOption}>
                         <Text style={styles.pickerOptionText}>
@@ -615,7 +724,7 @@ export default function AddResidentScreen() {
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => router.back()}>
+            onPress={() => navigation.goBack()}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
 
@@ -630,8 +739,8 @@ export default function AddResidentScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </>
+        </ScrollView>
+      </KeyboardAvoidingView>
   );
 }
 
@@ -639,6 +748,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   section: {
     padding: 16,
@@ -702,11 +817,95 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     overflow: 'hidden',
+    maxHeight: 300,
+  },
+  floorFilter: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  floorButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  floorButtonActive: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  floorButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  floorButtonTextActive: {
+    color: '#fff',
+  },
+  roomList: {
+    maxHeight: 200,
   },
   pickerOption: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+  },
+  roomOptionContent: {
+    flex: 1,
+  },
+  roomOptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  roomOptionNumber: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  roomOptionBadges: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  roomOptionBranch: {
+    fontSize: 12,
+    color: '#2563eb',
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    fontWeight: '600',
+  },
+  roomOptionFloor: {
+    fontSize: 12,
+    color: '#64748b',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  roomOptionDetails: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  roomOptionDetail: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  roomOptionVacant: {
+    color: '#16a34a',
+    fontWeight: '600',
   },
   pickerOptionText: {
     fontSize: 16,

@@ -8,7 +8,11 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
   Users,
   Bed,
@@ -45,7 +49,7 @@ interface RecentAdmission {
 }
 
 export default function DashboardScreen() {
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -248,13 +252,14 @@ export default function DashboardScreen() {
         <View style={styles.actionsRow}>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: '#2563eb' }]}
-            onPress={() => router.push('/resident/add')}>
+            onPress={() => navigation.navigate('AddResident')}>
             <UserPlus size={24} color="#fff" />
             <Text style={styles.actionButtonText}>Add Resident</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#16a34a' }]}>
+            style={[styles.actionButton, { backgroundColor: '#16a34a' }]}
+            onPress={() => navigation.navigate('CollectRent')}>
             <Wallet size={24} color="#fff" />
             <Text style={styles.actionButtonText}>Collect Rent</Text>
           </TouchableOpacity>
@@ -268,7 +273,7 @@ export default function DashboardScreen() {
             <TouchableOpacity
               key={item.id}
               style={styles.listItem}
-              onPress={() => router.push(`/resident/${item.id}`)}>
+              onPress={() => navigation.navigate('ResidentProfile', { id: item.id })}>
               <View style={styles.listItemLeft}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
@@ -305,7 +310,7 @@ export default function DashboardScreen() {
             <TouchableOpacity
               key={item.id}
               style={styles.listItem}
-              onPress={() => router.push(`/resident/${item.id}`)}>
+              onPress={() => navigation.navigate('ResidentProfile', { id: item.id })}>
               <View style={styles.listItemLeft}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>

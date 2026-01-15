@@ -9,7 +9,11 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import { Search, Plus } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -32,7 +36,7 @@ export default function ResidentsScreen() {
   const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
 
   const filters = ['All', 'Rent Due', 'New'];
@@ -206,7 +210,7 @@ export default function ResidentsScreen() {
             <TouchableOpacity
               key={resident.id}
               style={styles.residentCard}
-              onPress={() => router.push(`/resident/${resident.id}`)}>
+              onPress={() => navigation.navigate('ResidentProfile', { id: resident.id })}>
               <View style={styles.residentLeft}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
@@ -247,7 +251,7 @@ export default function ResidentsScreen() {
 
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => router.push('/resident/add')}>
+        onPress={() => navigation.navigate('AddResident')}>
         <Plus size={24} color="#fff" />
       </TouchableOpacity>
     </View>

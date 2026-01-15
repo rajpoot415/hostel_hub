@@ -7,11 +7,18 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Building2, AlertCircle } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { logError } from '@/lib/utils';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -21,7 +28,7 @@ export default function LoginScreen() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
   const { signIn, resetPassword } = useAuth();
 
   const handleLogin = async () => {
@@ -39,7 +46,7 @@ export default function LoginScreen() {
       if (error) {
         setError(error.message || 'Invalid email or password');
       } else {
-        router.replace('/(tabs)');
+        navigation.replace('Main');
       }
     } catch (err: unknown) {
       logError('Login', err);
@@ -85,8 +92,15 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.logoContainer}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.logoContainer}>
         <View style={styles.logoCircle}>
           <Building2 size={48} color="#fff" />
         </View>
@@ -186,12 +200,21 @@ export default function LoginScreen() {
                 <Text style={styles.loginButtonText}>Login</Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Signup')}
+              style={styles.signupLink}>
+              <Text style={styles.signupLinkText}>
+                Don't have an account? <Text style={styles.signupLinkBold}>Sign Up</Text>
+              </Text>
+            </TouchableOpacity>
           </>
         )}
       </View>
 
-      <Text style={styles.footer}>Version 1.0.0</Text>
-    </View>
+        <Text style={styles.footer}>Version 1.0.0</Text>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -199,6 +222,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
@@ -287,5 +313,17 @@ const styles = StyleSheet.create({
   },
   loginButtonDisabled: {
     opacity: 0.6,
+  },
+  signupLink: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  signupLinkText: {
+    color: '#64748b',
+    fontSize: 14,
+  },
+  signupLinkBold: {
+    color: '#2563eb',
+    fontWeight: '600',
   },
 });

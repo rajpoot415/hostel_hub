@@ -6,8 +6,14 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
-import { DoorOpen, Users } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { DoorOpen, Users, Plus } from 'lucide-react-native';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { logError } from '@/lib/utils';
@@ -49,6 +55,7 @@ export default function RoomsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
+  const navigation = useNavigation<NavigationProp>();
 
   const fetchRooms = async () => {
     if (!user) return;
@@ -56,8 +63,10 @@ export default function RoomsScreen() {
     try {
       const { data: roomsData, error } = await supabase
         .from('rooms')
-        .select('id, room_number, capacity, occupied_seats')
+        .select('id, room_number, capacity, occupied_seats, floor, branch')
         .eq('hostel_id', user.id)
+        .order('floor', { ascending: true })
+        .order('branch', { ascending: true, nullsFirst: false })
         .order('room_number', { ascending: true });
 
       if (error) throw error;
@@ -67,7 +76,7 @@ export default function RoomsScreen() {
         room_number: room.room_number,
         capacity: room.capacity,
         occupied_seats: room.occupied_seats,
-        floor: getFloorFromRoomNumber(room.room_number),
+        floor: room.floor || getFloorFromRoomNumber(room.room_number),
         vacant: room.capacity - room.occupied_seats,
       }));
 
@@ -123,11 +132,12 @@ export default function RoomsScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }>
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <View style={[styles.iconCircle, { backgroundColor: '#dbeafe' }]}>
@@ -213,7 +223,14 @@ export default function RoomsScreen() {
           <Text style={styles.emptyStateText}>No rooms found</Text>
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('AddRoom')}>
+        <Plus size={24} color="#fff" />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -221,6 +238,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   summaryContainer: {
     flexDirection: 'row',

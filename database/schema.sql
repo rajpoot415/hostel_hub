@@ -15,10 +15,12 @@ CREATE TABLE IF NOT EXISTS rooms (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   hostel_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   room_number TEXT NOT NULL,
+  floor INTEGER,
+  branch TEXT,
   capacity INTEGER NOT NULL CHECK (capacity > 0),
   occupied_seats INTEGER NOT NULL DEFAULT 0 CHECK (occupied_seats >= 0 AND occupied_seats <= capacity),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
-  UNIQUE(hostel_id, room_number)
+  UNIQUE(hostel_id, floor, COALESCE(branch, ''), room_number)
 );
 
 -- Create residents table
@@ -66,6 +68,10 @@ ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own profile"
   ON profiles FOR SELECT
   USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert their own profile"
+  ON profiles FOR INSERT
+  WITH CHECK (auth.uid() = id);
 
 CREATE POLICY "Users can update their own profile"
   ON profiles FOR UPDATE
@@ -163,8 +169,13 @@ CREATE POLICY "Users can delete documents for their hostel residents"
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, name, role)
-  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'name', 'User'), 'admin');
+  INSERT INTO public.profiles (id, name, phone, role)
+  VALUES (
+    NEW.id, 
+    COALESCE(NEW.raw_user_meta_data->>'name', 'User'), 
+    NULLIF(NEW.raw_user_meta_data->>'phone', ''),
+    'admin'
+  );
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

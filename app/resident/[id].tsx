@@ -10,7 +10,12 @@ import {
   Image,
   Linking,
 } from 'react-native';
-import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/types/navigation';
+
+type ResidentProfileRouteProp = RouteProp<RootStackParamList, 'ResidentProfile'>;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
   User,
   Phone,
@@ -70,11 +75,11 @@ export default function ResidentProfileScreen() {
   const [currentRent, setCurrentRent] = useState<CurrentRent | null>(null);
   const [rentHistory, setRentHistory] = useState<RentHistory[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const router = useRouter();
-  const params = useLocalSearchParams();
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<ResidentProfileRouteProp>();
   const { user } = useAuth();
 
-  const residentId = params.id as string;
+  const residentId = route.params.id;
 
   useEffect(() => {
     if (residentId) {
@@ -109,12 +114,19 @@ export default function ResidentProfileScreen() {
 
       if (residentError) throw residentError;
 
+      // Handle rooms relation (can be array or object depending on Supabase version)
+      const roomNumber = residentData.rooms 
+        ? (Array.isArray(residentData.rooms) 
+            ? residentData.rooms[0]?.room_number 
+            : (residentData.rooms as any)?.room_number)
+        : null;
+
       const formattedResident: Resident = {
         id: residentData.id,
         name: residentData.name,
         phone: residentData.phone,
         photo_url: residentData.photo_url,
-        room_number: residentData.rooms?.room_number || null,
+        room_number: roomNumber || null,
         admission_date: residentData.admission_date,
         emergency_contact: residentData.emergency_contact,
       };
@@ -233,19 +245,6 @@ export default function ResidentProfileScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTitle: 'Resident Profile',
-          headerStyle: { backgroundColor: '#2563eb' },
-          headerTintColor: '#fff',
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()}>
-              <ArrowLeft size={24} color="#fff" />
-            </TouchableOpacity>
-          ),
-        }}
-      />
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2563eb" />

@@ -16,6 +16,7 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, name: string, phone?: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: any }>;
   refreshProfile: () => Promise<void>;
@@ -81,6 +82,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
+  const signUp = async (email: string, password: string, name: string, phone?: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          phone,
+        },
+      },
+    });
+
+    if (!error && data.user) {
+      // Create profile - the trigger should handle this, but we'll also do it explicitly
+      try {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            name,
+            phone: phone || null,
+            role: 'admin',
+          });
+
+        if (profileError) {
+          logError('AuthContext.signUp.profile', profileError);
+        }
+      } catch (err) {
+        logError('AuthContext.signUp.profile', err);
+      }
+    }
+
+    return { error };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
@@ -107,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         loading,
         signIn,
+        signUp,
         signOut,
         resetPassword,
         refreshProfile,
