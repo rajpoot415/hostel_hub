@@ -57,12 +57,24 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+-- Create notices table
+CREATE TABLE IF NOT EXISTS notices (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  resident_id UUID REFERENCES residents(id) ON DELETE CASCADE NOT NULL,
+  notice_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  leaving_date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'processed')),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
 -- Enable Row Level Security
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notices ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for profiles
 CREATE POLICY "Users can view their own profile"
@@ -161,6 +173,47 @@ CREATE POLICY "Users can delete documents for their hostel residents"
     EXISTS (
       SELECT 1 FROM residents
       WHERE residents.id = documents.resident_id
+      AND residents.hostel_id = auth.uid()
+    )
+  );
+
+-- RLS Policies for notices
+CREATE POLICY "Users can view notices for their hostel residents"
+  ON notices FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM residents
+      WHERE residents.id = notices.resident_id
+      AND residents.hostel_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can insert notices for their hostel residents"
+  ON notices FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM residents
+      WHERE residents.id = notices.resident_id
+      AND residents.hostel_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can update notices for their hostel residents"
+  ON notices FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM residents
+      WHERE residents.id = notices.resident_id
+      AND residents.hostel_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can delete notices for their hostel residents"
+  ON notices FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM residents
+      WHERE residents.id = notices.resident_id
       AND residents.hostel_id = auth.uid()
     )
   );

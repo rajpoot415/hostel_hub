@@ -7,5 +7,6 @@ export type RootStackParamList = {
   AddRoom: undefined;
   EditProfile: undefined;
   CollectRent: undefined;
+  GiveNotice: { residentId: string };
 };
 

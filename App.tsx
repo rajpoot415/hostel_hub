@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { LayoutDashboard, Users, DoorOpen, User } from 'lucide-react-native';
+import { LayoutDashboard, Users, DoorOpen, User, Bell } from 'lucide-react-native';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginScreen from './app/login';
 import SignupScreen from './app/signup';
@@ -12,11 +12,13 @@ import DashboardScreen from './app/(tabs)/index';
 import ResidentsScreen from './app/(tabs)/residents';
 import RoomsScreen from './app/(tabs)/rooms';
 import ProfileScreen from './app/(tabs)/profile';
+import NoticesScreen from './app/(tabs)/notices';
 import AddResidentScreen from './app/resident/add';
 import ResidentProfileScreen from './app/resident/[id]';
 import AddRoomScreen from './app/room/add';
 import EditProfileScreen from './app/profile/edit';
 import CollectRentScreen from './app/rent/collect';
+import GiveNoticeScreen from './app/notice/give';
 import type { RootStackParamList } from './types/navigation';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -78,6 +80,13 @@ function TabNavigator() {
           tabBarIcon: ({ size, color }) => (
             <DoorOpen size={size} color={color} />
           ),
+        }}
+      />
+      <Tab.Screen
+        name="Notices"
+        component={NoticesScreen}
+        options={{
+          tabBarIcon: ({ size, color }) => <Bell size={size} color={color} />,
         }}
       />
       <Tab.Screen
@@ -173,6 +182,16 @@ function RootNavigator() {
               headerTintColor: '#fff',
             }}
           />
+          <Stack.Screen
+            name="GiveNotice"
+            component={GiveNoticeScreen}
+            options={{
+              headerShown: true,
+              title: 'Give Notice',
+              headerStyle: { backgroundColor: '#dc2626' },
+              headerTintColor: '#fff',
+            }}
+          />
         </>
       )}
     </Stack.Navigator>
@@ -184,7 +203,7 @@ export default function App() {
     <AuthProvider>
       <NavigationContainer>
         <RootNavigator />
-        <StatusBar style="auto" />
+        <StatusBar style="light" backgroundColor="#2563eb" translucent={false} />
       </NavigationContainer>
     </AuthProvider>
   );
