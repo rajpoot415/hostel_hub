@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,12 @@ import {
   Image,
   Linking,
 } from 'react-native';
-import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '@/types/navigation';
+
+type ResidentProfileRouteProp = RouteProp<RootStackParamList, 'ResidentProfile'>;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
   User,
   Phone,
@@ -22,6 +27,7 @@ import {
   IndianRupee,
   FileText,
   ArrowLeft,
+  Bell,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,6 +68,14 @@ interface Document {
   created_at: string;
 }
 
+interface ActiveNotice {
+  id: string;
+  notice_date: string;
+  leaving_date: string;
+  status: string;
+  notes: string | null;
+}
+
 export default function ResidentProfileScreen() {
   const [activeTab, setActiveTab] = useState('details');
   const [loading, setLoading] = useState(true);
@@ -70,17 +84,27 @@ export default function ResidentProfileScreen() {
   const [currentRent, setCurrentRent] = useState<CurrentRent | null>(null);
   const [rentHistory, setRentHistory] = useState<RentHistory[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const router = useRouter();
-  const params = useLocalSearchParams();
+  const [activeNotice, setActiveNotice] = useState<ActiveNotice | null>(null);
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<ResidentProfileRouteProp>();
   const { user } = useAuth();
 
-  const residentId = params.id as string;
+  const residentId = route.params.id;
 
   useEffect(() => {
     if (residentId) {
       fetchResidentData();
     }
   }, [residentId]);
+
+  // Auto-refresh when screen comes into focus (e.g., after creating notice)
+  useFocusEffect(
+    useCallback(() => {
+      if (residentId && user) {
+        fetchResidentData();
+      }
+    }, [residentId, user]),
+  );
 
   const fetchResidentData = async () => {
     if (!residentId || !user) return;
@@ -109,12 +133,19 @@ export default function ResidentProfileScreen() {
 
       if (residentError) throw residentError;
 
+      // Handle rooms relation (can be array or object depending on Supabase version)
+      const roomNumber = residentData.rooms 
+        ? (Array.isArray(residentData.rooms) 
+            ? residentData.rooms[0]?.room_number 
+            : (residentData.rooms as any)?.room_number)
+        : null;
+
       const formattedResident: Resident = {
         id: residentData.id,
         name: residentData.name,
         phone: residentData.phone,
         photo_url: residentData.photo_url,
-        room_number: residentData.rooms?.room_number || null,
+        room_number: roomNumber || null,
         admission_date: residentData.admission_date,
         emergency_contact: residentData.emergency_contact,
       };
@@ -158,6 +189,31 @@ export default function ResidentProfileScreen() {
 
       if (docsError) throw docsError;
       setDocuments(docsData || []);
+
+      // Fetch active notice for this resident
+      const { data: noticeData, error: noticeError } = await supabase
+        .from('notices')
+        .select('*')
+        .eq('resident_id', residentId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (noticeError && noticeError.code !== 'PGRST116') {
+        // PGRST116 is "no rows returned" which is fine
+        logError('ResidentProfile.fetchActiveNotice', noticeError);
+      } else if (noticeData) {
+        setActiveNotice({
+          id: noticeData.id,
+          notice_date: noticeData.notice_date,
+          leaving_date: noticeData.leaving_date,
+          status: noticeData.status,
+          notes: noticeData.notes,
+        });
+      } else {
+        setActiveNotice(null);
+      }
     } catch (error: unknown) {
       logError('ResidentProfile.fetchResidentData', error);
       Alert.alert('Error', 'Failed to load resident data');
@@ -233,19 +289,6 @@ export default function ResidentProfileScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTitle: 'Resident Profile',
-          headerStyle: { backgroundColor: '#2563eb' },
-          headerTintColor: '#fff',
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()}>
-              <ArrowLeft size={24} color="#fff" />
-            </TouchableOpacity>
-          ),
-        }}
-      />
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
@@ -365,6 +408,46 @@ export default function ResidentProfileScreen() {
                   </View>
                 )}
               </View>
+
+              {/* Show active notice info if notice exists */}
+              {activeNotice ? (
+                <View style={styles.noticeInfoCard}>
+                  <View style={styles.noticeInfoHeader}>
+                    <Bell size={20} color="#2563eb" />
+                    <Text style={styles.noticeInfoTitle}>Active Notice</Text>
+                  </View>
+                  <View style={styles.noticeInfoRow}>
+                    <Text style={styles.noticeInfoLabel}>Notice Date:</Text>
+                    <Text style={styles.noticeInfoValue}>
+                      {formatDate(activeNotice.notice_date)}
+                    </Text>
+                  </View>
+                  <View style={styles.noticeInfoRow}>
+                    <Text style={styles.noticeInfoLabel}>Leaving Date:</Text>
+                    <Text style={styles.noticeInfoValue}>
+                      {formatDate(activeNotice.leaving_date)}
+                    </Text>
+                  </View>
+                  {activeNotice.notes && (
+                    <View style={styles.noticeInfoRow}>
+                      <Text style={styles.noticeInfoLabel}>Notes:</Text>
+                      <Text style={styles.noticeInfoValue}>{activeNotice.notes}</Text>
+                    </View>
+                  )}
+                  <View style={styles.noticeInfoBadge}>
+                    <Text style={styles.noticeInfoBadgeText}>
+                      Notice Already Given
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.noticeButton}
+                  onPress={() => navigation.navigate('GiveNotice', { residentId: resident.id })}>
+                  <Bell size={20} color="#fff" />
+                  <Text style={styles.noticeButtonText}>Give Notice</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -775,5 +858,71 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#dc2626',
+  },
+  noticeButton: {
+    backgroundColor: '#dc2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  noticeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  noticeInfoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 2,
+    borderColor: '#dbeafe',
+  },
+  noticeInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  noticeInfoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  noticeInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  noticeInfoLabel: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  noticeInfoValue: {
+    fontSize: 14,
+    color: '#1e293b',
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  noticeInfoBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  noticeInfoBadgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563eb',
   },
 });

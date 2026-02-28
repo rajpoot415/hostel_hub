@@ -1,5 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useAuth } from '@/contexts/AuthContext';
+import type { RootStackParamList } from '@/types/navigation';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
   User,
   Settings,
@@ -11,10 +16,12 @@ import {
 } from 'lucide-react-native';
 
 export default function ProfileScreen() {
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
+  const { signOut, user, profile } = useAuth();
 
-  const handleLogout = () => {
-    router.replace('/login');
+  const handleLogout = async () => {
+    await signOut();
+    navigation.replace('Login');
   };
 
   return (
@@ -23,18 +30,25 @@ export default function ProfileScreen() {
         <View style={styles.avatarLarge}>
           <User size={48} color="#fff" />
         </View>
-        <Text style={styles.userName}>Admin User</Text>
-        <Text style={styles.userEmail}>admin@hostelhub.com</Text>
+        <Text style={styles.userName}>{profile?.name || user?.email?.split('@')[0] || 'User'}</Text>
+        <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
+        {profile?.role && (
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>{profile.role.toUpperCase()}</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('EditProfile')}>
           <View style={styles.menuItemLeft}>
             <View style={[styles.menuIcon, { backgroundColor: '#dbeafe' }]}>
               <Settings size={20} color="#2563eb" />
             </View>
-            <Text style={styles.menuItemText}>Settings</Text>
+            <Text style={styles.menuItemText}>Edit Profile</Text>
           </View>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
@@ -113,6 +127,19 @@ const styles = StyleSheet.create({
   userEmail: {
     fontSize: 14,
     color: '#64748b',
+    marginTop: 4,
+  },
+  roleBadge: {
+    marginTop: 8,
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  roleText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   section: {
     padding: 16,
